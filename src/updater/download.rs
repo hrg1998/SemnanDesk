@@ -143,7 +143,7 @@ fn create_download_temp_file(final_path: &Path) -> ResultType<(std::fs::File, Pa
     bail!("Failed to create temporary update file");
 }
 
-fn write_verified_update_artifact<R: Read>(
+pub(super) fn write_verified_update_artifact<R: Read>(
     final_path: &Path,
     reader: &mut R,
     expected_size: u64,

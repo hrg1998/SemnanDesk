@@ -1,5 +1,7 @@
 mod artifact;
 mod download;
+#[cfg(target_os = "windows")]
+mod semnan;
 
 use crate::common::do_check_software_update;
 use artifact::verified_update_artifact_from_release_page_url;
@@ -194,6 +196,10 @@ fn check_update(manually: bool) -> ResultType<()> {
         return Ok(());
     }
     #[cfg(target_os = "windows")]
+    if crate::is_custom_client() {
+        return check_update_semnan(manually);
+    }
+    #[cfg(target_os = "windows")]
     let update_msi = crate::platform::is_msi_installed()? && !crate::is_custom_client();
     #[cfg(not(target_os = "windows"))]
     let update_msi = false;
@@ -244,6 +250,25 @@ fn check_update(manually: bool) -> ResultType<()> {
                 )?;
             }
         }
+    }
+    Ok(())
+}
+
+/// SemnanDesk: self-hosted update. Enabled unless "allow-auto-update" is explicitly "N".
+#[cfg(target_os = "windows")]
+fn check_update_semnan(manually: bool) -> ResultType<()> {
+    if !manually && config::Config::get_option(keys::OPTION_ALLOW_AUTO_UPDATE) == "N" {
+        return Ok(());
+    }
+    let Some(avail) = semnan::check()? else {
+        return Ok(());
+    };
+    log::info!("SemnanDesk update available: {}", avail.version);
+    let file_path = semnan::download(&avail)?;
+    if has_no_active_conns() {
+        update_new_version(false, &avail.version, &file_path, &avail.artifact.sha256.to_lowercase());
+    } else {
+        remove_update_file(&file_path);
     }
     Ok(())
 }

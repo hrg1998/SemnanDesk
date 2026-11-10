@@ -4,6 +4,7 @@
 Run from the repository root (after `git submodule update --init`):
     python semnan/apply_branding.py
 """
+import os
 import re
 import shutil
 import sys
@@ -46,6 +47,21 @@ sub(rc, r'VALUE "CompanyName", "[^"]*"', f'VALUE "CompanyName", "{COMPANY}"')
 sub(rc, r'VALUE "FileDescription", "[^"]*"', f'VALUE "FileDescription", "{APP_NAME} Remote Desktop"')
 sub(rc, r'VALUE "LegalCopyright", "[^"]*"', f'VALUE "LegalCopyright", "{COMPANY}. Based on RustDesk (AGPL-3.0)."')
 sub(rc, r'VALUE "ProductName", "[^"]*"', f'VALUE "ProductName", "{APP_NAME}"')
+
+# --- exe metadata (main exe and portable packer) ---
+for toml in ("Cargo.toml", "libs/portable/Cargo.toml"):
+    sub(toml, r'LegalCopyright = "[^"]*"', f'LegalCopyright = "{COMPANY}. Based on RustDesk (AGPL-3.0)."')
+    sub(toml, r'ProductName = "[^"]*"', f'ProductName = "{APP_NAME}"')
+    sub(toml, r'FileDescription = "[^"]*"', f'FileDescription = "{APP_NAME} Remote Desktop"')
+    sub(toml, r'OriginalFilename = "[^"]*"', f'OriginalFilename = "{APP_NAME}.exe"')
+
+# --- version (SEMNAN_VERSION env, e.g. 1.5.3-2); auto update compares this ---
+VERSION = os.environ.get("SEMNAN_VERSION", "").strip()
+if VERSION:
+    if not re.fullmatch(r"\d+\.\d+\.\d+(-\d+)?", VERSION):
+        sys.exit(f"bad SEMNAN_VERSION: {VERSION}")
+    sub("Cargo.toml", r'(\[package\]\s*\nname = "rustdesk"\s*\nversion = )"[^"]*"', rf'\g<1>"{VERSION}"')
+    sub("Cargo.lock", r'(name = "rustdesk"\r?\nversion = )"[^"]*"', rf'\g<1>"{VERSION}"')
 
 # --- icons ---
 copies = {

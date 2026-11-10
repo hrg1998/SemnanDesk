@@ -2,8 +2,11 @@ name: SemnanDesk Windows build
 
 on:
   workflow_dispatch:
-  push:
-    tags: ["semnan-v*"]
+    inputs:
+      version:
+        description: "Version, e.g. 1.5.3-1 (must increase for auto update)"
+        required: true
+        default: "1.5.3-1"
 
 env:
   RUST_VERSION: "1.75"
@@ -12,7 +15,8 @@ env:
   FLUTTER_VERSION: "3.24.5"
   VCPKG_BINARY_SOURCES: "clear;x-gha,readwrite"
   VCPKG_COMMIT_ID: "9e593bb18ea69cc5095e012465dcd675a822ed0d"
-  VERSION: "1.5.3"
+  VERSION: ${{ inputs.version }}
+  SEMNAN_VERSION: ${{ inputs.version }}
   APP_NAME: "SemnanDesk"
 
 jobs:
@@ -160,7 +164,7 @@ jobs:
         run: |
           cp -r ./rustdesk ./msi-dist
           pushd ./res/msi
-          python preprocess.py -d ../../msi-dist --app-name ${{ env.APP_NAME }} -m "Semnan University"
+          python preprocess.py -d ../../msi-dist -v ${{ env.VERSION }} --app-name ${{ env.APP_NAME }} -m "Semnan University"
           nuget restore msi.sln
           msbuild msi.sln -p:Configuration=Release -p:Platform=x64 /p:TargetVersion=Windows10
           $msi = Get-ChildItem ./Package/bin/*/Release/en-us/Package.msi | Select-Object -First 1
@@ -173,9 +177,123 @@ jobs:
           name: SemnanDesk-windows-x64
           path: ./out
 
-      - name: Publish release
-        if: startsWith(github.ref, 'refs/tags/')
-        uses: softprops/action-gh-release@de2c0eb89ae2a093876385947365aca7b0e5f844 # v1
+  build-windows-x86:
+    runs-on: windows-2022
+    env:
+      TARGET: i686-pc-windows-msvc
+      TRIPLET: x86-windows-static
+    steps:
+      - name: Export GitHub Actions cache environment variables
+        uses: actions/github-script@d7906e4ad0b1822421a7e6a35d5ca353c962f410 # v6
         with:
-          prerelease: true
-          files: ./out/*
+          script: |
+            core.exportVariable('ACTIONS_CACHE_URL', process.env.ACTIONS_CACHE_URL || '');
+            core.exportVariable('ACTIONS_RUNTIME_TOKEN', process.env.ACTIONS_RUNTIME_TOKEN || '');
+
+      - name: Checkout source code
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          submodules: recursive
+
+      - name: Apply SemnanDesk branding
+        run: python semnan/apply_branding.py
+
+      - name: Install LLVM and Clang
+        uses: rustdesk-org/install-llvm-action-32bit@6aa7d9ad3df84dff01cd4596dd0fc880a7f47fce
+        with:
+          version: ${{ env.LLVM_VERSION }}
+
+      - name: Install Rust toolchain
+        shell: bash
+        run: |
+          rustup toolchain install nightly-2023-10-13-$TARGET             --target $TARGET --component rustfmt             --profile minimal --no-self-update --force-non-host
+          rustup default nightly-2023-10-13-$TARGET --force-non-host
+
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
+        with:
+          prefix-key: semnan-windows-2022-sciter
+
+      - name: Setup vcpkg with Github Actions binary cache
+        uses: lukka/run-vcpkg@b1a0dd252f06b9e25b3c022a9a03bd7a427fb6a2 # v11
+        with:
+          vcpkgDirectory: C:cpkg
+          vcpkgGitCommitId: ${{ env.VCPKG_COMMIT_ID }}
+          doNotCache: false
+
+      - name: Install vcpkg dependencies
+        env:
+          VCPKG_DEFAULT_HOST_TRIPLET: ${{ env.TRIPLET }}
+        shell: bash
+        run: |
+          if ! $VCPKG_ROOT/vcpkg install --triplet $TRIPLET --x-install-root="$VCPKG_ROOT/installed"; then
+            find "${VCPKG_ROOT}/" -name "*.log" | while read -r f; do echo "$f:"; cat "$f"; done
+            exit 1
+          fi
+
+      - name: Build
+        shell: bash
+        run: |
+          python3 res/inline-sciter.py
+          sed -i 's/branch = "dyn"/branch = "dyn_x86"/g' ./Cargo.toml
+          cargo update -p sciter-rs --precise 674e07d3066ca9a92ced3816203ab6b652629d1e
+          cargo build --locked --features inline,vram,hwcodec --release --bins
+          mkdir -p ./Release
+          mv ./target/release/rustdesk.exe ./Release/${APP_NAME}.exe
+          curl -LJ -o ./Release/sciter.dll https://github.com/c-smile/sciter-sdk/raw/master/bin.win/x32/sciter.dll
+          curl -LJ -o ./usbmmidd_v2.zip https://github.com/rustdesk-org/rdev/releases/download/usbmmidd_v2/usbmmidd_v2.zip
+          unzip usbmmidd_v2.zip
+          rm -rf ./usbmmidd_v2/deviceinstaller.exe ./usbmmidd_v2/usbmmidd.bat
+          mv ./usbmmidd_v2 ./Release || true
+
+      - name: Build portable executable
+        shell: bash
+        run: |
+          sed -i '/dpiAware/d' res/manifest.xml
+          pushd ./libs/portable
+          pip3 install -r requirements.txt
+          python3 ./generate.py -f ../../Release/ -o . -e ../../Release/${APP_NAME}.exe
+          popd
+          mkdir -p ./out
+          mv ./target/release/rustdesk-portable-packer.exe ./out/${APP_NAME}-${VERSION}-x86.exe
+
+      - name: Upload installer
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: SemnanDesk-windows-x86
+          path: ./out
+
+  update-package:
+    needs: [build-windows-x64, build-windows-x86]
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: SemnanDesk-windows-x64
+          path: ./x64
+
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: SemnanDesk-windows-x86
+          path: ./x86
+
+      - name: Build server upload bundle
+        env:
+          SEMNAN_UPDATE_SIGNING_KEY: ${{ secrets.SEMNAN_UPDATE_SIGNING_KEY }}
+        run: |
+          if [ -z "$SEMNAN_UPDATE_SIGNING_KEY" ]; then
+            echo "::error::Secret SEMNAN_UPDATE_SIGNING_KEY is not set"; exit 1
+          fi
+          pip3 install cryptography
+          mkdir -p upload
+          cp "x64/${APP_NAME}-${VERSION}-x86_64.exe" upload/rustdesk86.exe
+          cp "x86/${APP_NAME}-${VERSION}-x86.exe" upload/rustdesk32.exe
+          python3 semnan/make_update_json.py --version "$VERSION"             --x64 upload/rustdesk86.exe --x86 upload/rustdesk32.exe -o upload/latest.json
+          cat upload/latest.json
+
+      - name: Upload server bundle
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: SemnanDesk-${{ env.VERSION }}-server-upload
+          path: ./upload
