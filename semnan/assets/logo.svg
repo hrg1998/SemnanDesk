@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#1E5BA8"/>
+      <stop offset="1" stop-color="#0B2F63"/>
+    </linearGradient>
+  </defs>
+  <rect x="16" y="16" width="480" height="480" rx="108" fill="url(#bg)"/>
+  <!-- monitor -->
+  <rect x="96" y="120" width="320" height="216" rx="24" fill="none" stroke="#FFFFFF" stroke-width="22"/>
+  <path d="M206 336 L196 386 H316 L306 336" fill="#FFFFFF"/>
+  <rect x="166" y="380" width="180" height="20" rx="10" fill="#FFFFFF"/>
+  <!-- remote link arcs (RustDesk style) -->
+  <path d="M168 260 a88 88 0 0 1 88 -88" fill="none" stroke="#F2B233" stroke-width="18" stroke-linecap="round"/>
+  <path d="M344 196 a88 88 0 0 1 -88 88" fill="none" stroke="#F2B233" stroke-width="18" stroke-linecap="round"/>
+  <!-- S for Semnan -->
+  <text x="256" y="268" text-anchor="middle" font-family="Segoe UI, Arial, sans-serif" font-weight="700" font-size="120" fill="#FFFFFF">S</text>
+</svg>
